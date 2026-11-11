@@ -127,7 +127,7 @@
 
   <script>
     // === WKLEJ TUTAJ SWÓJ LINK /exec Z GOOGLE APPS SCRIPT ===
-    const API_URL = "TUTAJ_WKLEJ_SWOJ_LINK_Z_APPS_SCRIPT";
+    const API_URL = "https://script.google.com/macros/s/AKfycbz2jaueHpotGGduBg8vxCgSRf_MjpdhpR0HuwMDM6aG18m78CFi2sUcL1lEyUzsc5YYXA/exec";
 
     const VALID_CATEGORIES = ["Stres", "Odpoczynek", "Wyciszenie"];
     let currentCategory = "";
