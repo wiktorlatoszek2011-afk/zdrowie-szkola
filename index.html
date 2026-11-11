@@ -120,6 +120,7 @@
       <div class="id-box">
         <div class="muted">Twój kod urządzenia</div>
         <div id="device-token" class="token-display">...</div>
+        <p id="qr-message" class="muted hidden" role="status" aria-live="polite"></p>
         <div style="margin-top: 12px;">
           <label for="user-name" class="muted">Imię, nazwisko i klasa <span aria-hidden="true">*</span></label>
           <input type="text" id="user-name" placeholder="np. Jan Kowalski 2B" autocomplete="name" />
@@ -182,6 +183,7 @@
     let pendingResult = null;
     let pendingResultStored = false;
     let pendingResultSaveError = "";
+    let pendingQrCategory = "";
 
     // 1. Generowanie lub odczyt stałego tokenu urządzenia z localStorage
     function getDeviceToken() {
@@ -208,6 +210,12 @@
         return;
       }
       localStorage.setItem("szkola_user_name", val);
+      if (pendingQrCategory) {
+        const category = pendingQrCategory;
+        pendingQrCategory = "";
+        startQuiz(category);
+        return;
+      }
       alert("Zapisano identyfikator: " + getFullIdentifier());
     }
 
@@ -219,16 +227,17 @@
 
       const params = new URLSearchParams(window.location.search);
       const quizParam = params.get("quiz");
-      if (quizParam) {
+      if (quizParam !== null) {
         const matched = VALID_CATEGORIES.find(c => c.toLowerCase() === quizParam.trim().toLowerCase());
-        if (matched) {
-          if (!savedName) {
-            // Jeśli uczeń wszedł prosto z kodu QR i nie ma jeszcze wpisanego nazwiska, poproś o nie przed startem
-            const entered = prompt(`Quiz: ${matched}\nWpisz swoje Imię, Nazwisko i Klasę (np. Anna Nowak 1C):`);
-            if (entered && entered.trim()) {
-              document.getElementById("user-name").value = entered.trim();
-            }
-          }
+        const qrMessage = document.getElementById("qr-message");
+        qrMessage.classList.remove("hidden");
+        if (!matched) {
+          qrMessage.textContent = `Nie rozpoznaję kategorii „${quizParam}” w tym linku QR. Sprawdź, czy kod QR prowadzi do poprawnego quizu.`;
+        } else if (!savedName) {
+          pendingQrCategory = matched;
+          qrMessage.textContent = `Link QR otwiera quiz „${matched}”. Wpisz imię, nazwisko i klasę, a następnie wybierz „Zapisz moje dane”, aby rozpocząć.`;
+          document.getElementById("user-name").focus();
+        } else {
           startQuiz(matched);
         }
       }
