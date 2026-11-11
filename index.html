@@ -162,6 +162,7 @@
         <div class="muted" style="margin-top: 6px;">Kategoria: <b id="confirm-cat"></b> • Status zapisu: <b id="confirm-sync">Wysyłanie...</b></div>
       </div>
 
+      <button class="btn btn-secondary hidden" id="retry-send-btn" onclick="retryPendingResult()">Ponów wysyłkę wyniku</button>
       <button class="btn" onclick="goHome()">Wróć do panelu głównego</button>
     </div>
   </div>
@@ -171,11 +172,16 @@
     const API_URL = "https://script.google.com/macros/s/AKfycbz2jaueHpotGGduBg8vxCgSRf_MjpdhpR0HuwMDM6aG18m78CFi2sUcL1lEyUzsc5YYXA/exec";
 
     const VALID_CATEGORIES = ["Stres", "Odpoczynek", "Wyciszenie"];
+    const QUESTION_COUNT = 12;
+    const PASS_SCORE = 8;
     let currentCategory = "";
     let questions = [];
     let currentIndex = 0;
     let selectedAnswer = null;
     let score = 0;
+    let pendingResult = null;
+    let pendingResultStored = false;
+    let pendingResultSaveError = "";
 
     // 1. Generowanie lub odczyt stałego tokenu urządzenia z localStorage
     function getDeviceToken() {
@@ -214,13 +220,12 @@
       const params = new URLSearchParams(window.location.search);
       const quizParam = params.get("quiz");
       if (quizParam) {
-        const matched = VALID_CATEGORIES.find(c => c.toLowerCase() === quizParam.toLowerCase());
+        const matched = VALID_CATEGORIES.find(c => c.toLowerCase() === quizParam.trim().toLowerCase());
         if (matched) {
           if (!savedName) {
             // Jeśli uczeń wszedł prosto z kodu QR i nie ma jeszcze wpisanego nazwiska, poproś o nie przed startem
             const entered = prompt(`Quiz: ${matched}\nWpisz swoje Imię, Nazwisko i Klasę (np. Anna Nowak 1C):`);
             if (entered && entered.trim()) {
-              localStorage.setItem("szkola_user_name", entered.trim());
               document.getElementById("user-name").value = entered.trim();
             }
           }
@@ -239,12 +244,20 @@
       }
       localStorage.setItem("szkola_user_name", name);
 
+      currentCategory = category;
       if (localStorage.getItem("done_" + category)) {
-        alert("Na tym urządzeniu rozwiązałeś już quiz: " + category + " (zasada 1 próby).");
+        alert("Na tym urządzeniu quiz „" + category + "” został już rozwiązany (zasada jednej próby).");
         return;
       }
 
-      currentCategory = category;
+      const savedPendingResult = getPendingResult(category);
+      if (savedPendingResult) {
+        pendingResult = savedPendingResult;
+        pendingResultStored = true;
+        showResult(savedPendingResult, "Wynik czeka na zapisanie. Ponów wysyłkę.");
+        return;
+      }
+
       currentIndex = 0;
       score = 0;
       selectedAnswer = null;
@@ -254,20 +267,48 @@
       document.getElementById("view-quiz").classList.remove("hidden");
       document.getElementById("quiz-category-badge").textContent = "QUIZ: " + category.toUpperCase();
       document.getElementById("question-text").textContent = "Pobieram pytania z Arkusza Google...";
-      document.getElementById("options-container").innerHTML = "";
+      document.getElementById("options-container").replaceChildren();
 
       try {
         const res = await fetch(`${API_URL}?action=questions&kategoria=${encodeURIComponent(category)}`);
-        const data = await res.json();
-        if (data.status !== "ok" || !data.pytania || data.pytania.length === 0) {
-          throw new Error("Brak pytań w arkuszu dla kategorii " + category);
+        if (!res.ok) {
+          throw new Error(`Serwer zwrócił błąd HTTP ${res.status}.`);
         }
+        const data = await res.json();
+        if (!data || data.status !== "ok" || !Array.isArray(data.pytania)) {
+          throw new Error(data && data.message ? data.message : "Arkusz zwrócił nieprawidłową odpowiedź.");
+        }
+        validateQuestions(data.pytania, category);
         questions = data.pytania;
         renderQuestion();
       } catch (err) {
-        alert("Błąd połączenia z arkuszem: " + err.message);
+        const message = err instanceof Error ? err.message : "Nieznany błąd.";
+        alert("Nie udało się pobrać pytań: " + message);
         goHome();
       }
+    }
+
+    function validateQuestions(questionList, category) {
+      if (questionList.length !== QUESTION_COUNT) {
+        throw new Error(`Quiz „${category}” musi zawierać dokładnie ${QUESTION_COUNT} pytań, a zawiera ${questionList.length}.`);
+      }
+
+      questionList.forEach((question, index) => {
+        const validQuestion = question &&
+          typeof question.pytanie === "string" &&
+          question.pytanie.trim() &&
+          question.odpowiedzi &&
+          ["A", "B", "C", "D"].every(letter =>
+            typeof question.odpowiedzi[letter] === "string" && question.odpowiedzi[letter].trim()
+          ) &&
+          ["A", "B", "C", "D"].includes(
+            typeof question.poprawna === "string" ? question.poprawna.trim().toUpperCase() : ""
+          );
+        if (!validQuestion) {
+          throw new Error(`Pytanie ${index + 1} w kategorii „${category}” ma nieprawidłową treść, odpowiedzi lub klucz.`);
+        }
+        question.poprawna = question.poprawna.trim().toUpperCase();
+      });
     }
 
     function renderQuestion() {
@@ -278,7 +319,7 @@
       document.getElementById("question-text").textContent = q.pytanie;
 
       const container = document.getElementById("options-container");
-      container.innerHTML = "";
+      container.replaceChildren();
 
       ["A", "B", "C", "D"].forEach(letter => {
         const btn = document.createElement("button");
@@ -298,7 +339,8 @@
     }
 
     function nextQuestion() {
-      if (!selectedAnswer) return;
+      if (!selectedAnswer || currentIndex >= questions.length) return;
+      document.getElementById("next-btn").disabled = true;
       if (selectedAnswer === questions[currentIndex].poprawna) {
         score++;
       }
@@ -312,43 +354,127 @@
 
     // 4. Wysłanie wyniku do Arkusza Google i blokada kolejnej próby
     async function finishQuiz() {
-      localStorage.setItem("done_" + currentCategory, score);
+      pendingResult = {
+        kategoria: currentCategory,
+        identyfikator: getFullIdentifier(),
+        wynik: score
+      };
+      pendingResultStored = false;
+      pendingResultSaveError = "";
+      try {
+        localStorage.setItem(getPendingResultKey(currentCategory), JSON.stringify(pendingResult));
+        pendingResultStored = true;
+      } catch (err) {
+        pendingResultSaveError = err instanceof Error ? err.message : "nieznany błąd pamięci przeglądarki";
+      }
+      showResult(pendingResult, "Zapisywanie w arkuszu...");
+      await sendPendingResult();
+    }
 
+    function getPendingResultKey(category) {
+      return "pending_result_" + category;
+    }
+
+    function getPendingResult(category) {
+      const rawResult = localStorage.getItem(getPendingResultKey(category));
+      if (!rawResult) return null;
+
+      try {
+        const result = JSON.parse(rawResult);
+        if (!result || result.kategoria !== category || typeof result.identyfikator !== "string" ||
+            !Number.isInteger(result.wynik) || result.wynik < 0 || result.wynik > QUESTION_COUNT) {
+          throw new Error("Nieprawidłowy zapis oczekującego wyniku.");
+        }
+        return result;
+      } catch (err) {
+        localStorage.removeItem(getPendingResultKey(category));
+        alert(`Zapis oczekującego wyniku quizu „${category}” był uszkodzony i został usunięty. Quiz można rozwiązać ponownie.`);
+        return null;
+      }
+    }
+
+    function showResult(result, statusMessage) {
+      currentCategory = result.kategoria;
+      score = result.wynik;
+      document.getElementById("view-home").classList.add("hidden");
       document.getElementById("view-quiz").classList.add("hidden");
       document.getElementById("view-result").classList.remove("hidden");
+      document.getElementById("result-title").textContent = `Twój wynik: ${result.wynik} / ${QUESTION_COUNT} pkt`;
+      document.getElementById("result-desc").textContent = result.wynik >= PASS_SCORE
+        ? `Świetnie! Zaliczyłeś tę kategorię (min. ${PASS_SCORE} pkt). Zrób pozostałe quizy, aby odebrać bon.`
+        : `Niestety zabrakło do progu ${PASS_SCORE} punktów. Zasada 1 próby została zapisana.`;
+      document.getElementById("confirm-id").textContent = result.identyfikator;
+      document.getElementById("confirm-cat").textContent = result.kategoria;
+      setSyncStatus(statusMessage, "#8a6740");
+      document.getElementById("retry-send-btn").classList.remove("hidden");
+      document.getElementById("retry-send-btn").disabled = false;
+    }
 
-      const passed = score >= 8;
-      document.getElementById("result-title").textContent = `Twój wynik: ${score} / ${questions.length} pkt`;
-      document.getElementById("result-desc").textContent = passed
-        ? "Świetnie! Zaliczyłeś tę kategorię (min. 8 pkt). Zrób pozostałe quizy, aby odebrać bon."
-        : "Niestety zabrakło do progu 8 punktów. Zasada 1 próby została zapisana.";
+    function setSyncStatus(message, color) {
+      const status = document.getElementById("confirm-sync");
+      status.textContent = message;
+      status.style.color = color;
+    }
 
-      const fullId = getFullIdentifier();
-      document.getElementById("confirm-id").textContent = fullId;
-      document.getElementById("confirm-cat").textContent = currentCategory;
-      document.getElementById("confirm-sync").textContent = "Zapisywanie w arkuszu...";
+    async function retryPendingResult() {
+      if (!pendingResult && currentCategory) {
+        pendingResult = getPendingResult(currentCategory);
+        pendingResultStored = Boolean(pendingResult);
+      }
+      if (!pendingResult) {
+        alert("Nie znaleziono wyniku do ponownego wysłania.");
+        return;
+      }
+      await sendPendingResult();
+    }
+
+    async function sendPendingResult() {
+      const retryButton = document.getElementById("retry-send-btn");
+      retryButton.disabled = true;
+      setSyncStatus("Zapisywanie w arkuszu...", "#8a6740");
 
       try {
         const res = await fetch(API_URL, {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
           body: JSON.stringify({
-            kategoria: currentCategory,
-            identyfikator: fullId,
-            wynik: score
+            kategoria: pendingResult.kategoria,
+            identyfikator: pendingResult.identyfikator,
+            wynik: pendingResult.wynik
           })
         });
-        const result = await res.json();
-        if (result.status === "ok") {
-          document.getElementById("confirm-sync").textContent = "ZAPISANO W ARKUSZU ✓";
-          document.getElementById("confirm-sync").style.color = "#10b981";
-        } else {
-          document.getElementById("confirm-sync").textContent = result.message;
-          document.getElementById("confirm-sync").style.color = "#f59e0b";
+        if (!res.ok) {
+          throw new Error(`Serwer zwrócił błąd HTTP ${res.status}.`);
         }
-      } catch (e) {
-        document.getElementById("confirm-sync").textContent = "Błąd wysyłania (pokaż ten ekran przy odbiorze)";
-        document.getElementById("confirm-sync").style.color = "#ef4444";
+        const result = await res.json();
+        if (!result || result.status !== "ok") {
+          throw new Error(result && result.message ? result.message : "Arkusz nie potwierdził zapisu wyniku.");
+        }
+
+        const completedCategory = pendingResult.kategoria;
+        try {
+          localStorage.setItem("done_" + completedCategory, pendingResult.wynik);
+          localStorage.removeItem(getPendingResultKey(completedCategory));
+        } catch {
+          setSyncStatus("Wynik zapisano w arkuszu, ale nie udało się zaktualizować pamięci tego urządzenia.", "#8a6740");
+          retryButton.classList.add("hidden");
+          pendingResult = null;
+          pendingResultStored = false;
+          pendingResultSaveError = "";
+          return;
+        }
+        pendingResult = null;
+        pendingResultStored = false;
+        pendingResultSaveError = "";
+        setSyncStatus("ZAPISANO W ARKUSZU ✓", "#527b61");
+        retryButton.classList.add("hidden");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Nieznany błąd.";
+        const storageMessage = pendingResultStored
+          ? ""
+          : ` Nie udało się zachować kopii wyniku na tym urządzeniu (${pendingResultSaveError}). Nie zamykaj tej strony.`;
+        setSyncStatus(`Nie udało się zapisać wyniku: ${message}.${storageMessage}`, "#a64e4e");
+        retryButton.disabled = false;
       }
     }
 
@@ -356,28 +482,72 @@
     async function checkLiveStatus() {
       const box = document.getElementById("status-output");
       box.classList.remove("hidden");
-      box.innerHTML = "<p class='muted'>Sprawdzam w arkuszu...</p>";
+      box.textContent = "";
+      const loading = document.createElement("p");
+      loading.className = "muted";
+      loading.textContent = "Sprawdzam w arkuszu...";
+      box.appendChild(loading);
 
       try {
         const id = encodeURIComponent(getFullIdentifier());
         const res = await fetch(`${API_URL}?action=status&id=${id}`);
-        const data = await res.json();
-
-        let html = "<div class='id-box'>";
-        if (data.uczen) {
-          html += `<b>Twój status:</b> ${data.uczen.status || "W trakcie"}<br>`;
-          html += `<span class='muted'>Stres: ${data.uczen.stres} | Odpoczynek: ${data.uczen.odpoczynek} | Wyciszenie: ${data.uczen.wyciszenie}</span>`;
-        } else {
-          html += "<span class='muted'>Nie wysłałeś jeszcze żadnego quizu z tego urządzenia.</span>";
+        if (!res.ok) {
+          throw new Error(`Serwer zwrócił błąd HTTP ${res.status}.`);
         }
-        html += "<hr style='border-color:#334155; margin:12px 0;'><b>Wolne miejsca na lekcje relaksu:</b><ul style='padding-left:18px; margin:8px 0;'>";
-        data.lekcje.forEach(l => {
-          html += `<li>${l.lekcja}: <b>${l.wolne}</b> wolnych miejsc (z ${l.limit})</li>`;
+        const data = await res.json();
+        if (!data || !Array.isArray(data.lekcje)) {
+          throw new Error("Arkusz zwrócił nieprawidłowe dane o wolnych miejscach.");
+        }
+
+        const statusBox = document.createElement("div");
+        statusBox.className = "id-box";
+        if (data.uczen) {
+          const studentStatus = document.createElement("div");
+          const statusLabel = document.createElement("b");
+          statusLabel.textContent = "Twój status: ";
+          studentStatus.append(statusLabel, document.createTextNode(
+            typeof data.uczen.status === "string" && data.uczen.status ? data.uczen.status : "W trakcie"
+          ));
+          statusBox.appendChild(studentStatus);
+
+          const scores = document.createElement("span");
+          scores.className = "muted";
+          scores.textContent = `Stres: ${data.uczen.stres ?? "—"} | Odpoczynek: ${data.uczen.odpoczynek ?? "—"} | Wyciszenie: ${data.uczen.wyciszenie ?? "—"}`;
+          statusBox.appendChild(scores);
+        } else {
+          const noResults = document.createElement("span");
+          noResults.className = "muted";
+          noResults.textContent = "Nie wysłałeś jeszcze żadnego quizu z tego urządzenia.";
+          statusBox.appendChild(noResults);
+        }
+        const divider = document.createElement("hr");
+        divider.style.margin = "12px 0";
+        statusBox.appendChild(divider);
+        const lessonsLabel = document.createElement("b");
+        lessonsLabel.textContent = "Wolne miejsca na lekcje relaksu:";
+        statusBox.appendChild(lessonsLabel);
+        const lessonList = document.createElement("ul");
+        lessonList.style.paddingLeft = "18px";
+        lessonList.style.margin = "8px 0";
+        data.lekcje.forEach(lesson => {
+          if (!lesson || typeof lesson.lekcja !== "string") {
+            throw new Error("Arkusz zwrócił nieprawidłowe dane o lekcjach.");
+          }
+          const item = document.createElement("li");
+          item.appendChild(document.createTextNode(`${lesson.lekcja}: `));
+          const available = document.createElement("b");
+          available.textContent = String(lesson.wolne ?? "—");
+          item.append(available, document.createTextNode(` wolnych miejsc (z ${lesson.limit ?? "—"})`));
+          lessonList.appendChild(item);
         });
-        html += "</ul></div>";
-        box.innerHTML = html;
-      } catch (e) {
-        box.innerHTML = "<p class='muted'>Nie udało się pobrać statusu.</p>";
+        statusBox.appendChild(lessonList);
+        box.replaceChildren(statusBox);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Nieznany błąd.";
+        const error = document.createElement("p");
+        error.className = "muted";
+        error.textContent = `Nie udało się pobrać statusu: ${message}`;
+        box.replaceChildren(error);
       }
     }
 
