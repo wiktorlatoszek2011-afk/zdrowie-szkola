@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Strefa Spokoju – Quizy Zdrowotne</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --accent: #10b981;
+      --accent-hover: #059669;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+    }
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      display: flex; justify-content: center; padding: 20px; min-height: 100vh;
+    }
+    .container { width: 100%; max-width: 640px; }
+    .card {
+      background: var(--card); border-radius: 16px; padding: 24px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.3); margin-bottom: 16px;
+    }
+    h1, h2 { margin-top: 0; }
+    .badge {
+      display: inline-block; background: rgba(16,185,129,0.15); color: var(--accent);
+      padding: 6px 12px; border-radius: 999px; font-weight: 700; font-size: 0.85rem;
+      margin-bottom: 10px;
+    }
+    .id-box {
+      background: #0f172a; border: 1px solid #334155; padding: 14px;
+      border-radius: 12px; margin: 16px 0;
+    }
+    input[type="text"] {
+      width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #475569;
+      background: #1e293b; color: white; font-size: 1rem; margin-top: 8px;
+    }
+    .btn {
+      display: inline-block; width: 100%; padding: 14px; border: none; border-radius: 12px;
+      background: var(--accent); color: #052e16; font-weight: 800; font-size: 1rem;
+      cursor: pointer; text-align: center; text-decoration: none; margin-top: 10px;
+      transition: 0.2s;
+    }
+    .btn:hover { background: var(--accent-hover); color: white; }
+    .btn-secondary { background: #334155; color: white; }
+    .btn-secondary:hover { background: #475569; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .option {
+      display: block; width: 100%; text-align: left; background: #0f172a;
+      border: 2px solid #334155; color: var(--text); padding: 14px;
+      border-radius: 12px; margin-bottom: 10px; cursor: pointer; font-size: 0.98rem;
+      transition: 0.15s;
+    }
+    .option:hover { border-color: var(--accent); }
+    .option.selected { border-color: var(--accent); background: rgba(16,185,129,0.15); }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+    .status-pill {
+      padding: 12px; border-radius: 12px; background: #0f172a; text-align: center;
+      border: 1px solid #334155;
+    }
+    .hidden { display: none; }
+    .muted { color: var(--muted); font-size: 0.9rem; }
+    .token-display {
+      font-family: monospace; font-size: 1.15rem; color: var(--warn); font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- EKRAN 1: IDENTYFIKACJA URZĄDZENIA + PANEL GŁÓWNY -->
+    <div id="view-home" class="card">
+      <div class="badge">PROJEKT SZKOLNY • 45 MIN RELAKSU</div>
+      <h1>Strefa Spokoju</h1>
+      <p class="muted">Rozwiąż 3 krótkie quizy (min. 8/12 pkt z każdego) i odbierz w bibliotece bon na 45 minut odpoczynku zamiast lekcji.</p>
+
+      <div class="id-box">
+        <div class="muted">Twój kod urządzenia (przypisany automatycznie):</div>
+        <div id="device-token" class="token-display">...</div>
+        <div style="margin-top: 12px;">
+          <label for="user-name" class="muted">Wpisz swoje <b>Imię, Nazwisko i Klasę</b> (wymagane do odbioru bonu):</label>
+          <input type="text" id="user-name" placeholder="np. Jan Kowalski 2B" />
+        </div>
+        <button class="btn btn-secondary" onclick="saveIdentity()">Zapisz moje dane</button>
+      </div>
+
+      <h2>Wybierz quiz (lub zeskanuj kod QR):</h2>
+      <div class="grid-3">
+        <button class="btn" id="btn-Stres" onclick="startQuiz('Stres')">1. Stres</button>
+        <button class="btn" id="btn-Odpoczynek" onclick="startQuiz('Odpoczynek')">2. Odpoczynek</button>
+        <button class="btn" id="btn-Wyciszenie" onclick="startQuiz('Wyciszenie')">3. Wyciszenie</button>
+      </div>
+
+      <div style="margin-top: 24px;">
+        <button class="btn btn-secondary" onclick="checkLiveStatus()">Odśwież moje wyniki i wolne miejsca</button>
+        <div id="status-output" class="hidden" style="margin-top: 14px;"></div>
+      </div>
+    </div>
+
+    <!-- EKRAN 2: ROZWIĄZYWANIE QUIZU -->
+    <div id="view-quiz" class="card hidden">
+      <div class="badge" id="quiz-category-badge">QUIZ</div>
+      <div class="muted" id="quiz-progress">Pytanie 1 z 12</div>
+      <h2 id="question-text" style="margin-top: 8px;">Ładowanie pytań z arkusza...</h2>
+      <div id="options-container"></div>
+      <button class="btn" id="next-btn" onclick="nextQuestion()" disabled>Następne pytanie</button>
+    </div>
+
+    <!-- EKRAN 3: WYNIK I POTWIERDZENIE Z URZĄDZENIA -->
+    <div id="view-result" class="card hidden">
+      <div class="badge">POTWIERDZENIE WYKONANIA QUIZU</div>
+      <h1 id="result-title">Twój wynik: 0 / 12</h1>
+      <p id="result-desc"></p>
+
+      <div class="id-box">
+        <div class="muted">Identyfikator do pokazania przy odbiorze bonu:</div>
+        <div id="confirm-id" class="token-display" style="font-size: 1.3rem;"></div>
+        <div class="muted" style="margin-top: 6px;">Kategoria: <b id="confirm-cat"></b> • Status zapisu: <b id="confirm-sync">Wysyłanie...</b></div>
+      </div>
+
+      <button class="btn" onclick="goHome()">Wróć do panelu głównego</button>
+    </div>
+  </div>
+
+  <script>
+    // === WKLEJ TUTAJ SWÓJ LINK /exec Z GOOGLE APPS SCRIPT ===
+    const API_URL = "TUTAJ_WKLEJ_SWOJ_LINK_Z_APPS_SCRIPT";
+
+    const VALID_CATEGORIES = ["Stres", "Odpoczynek", "Wyciszenie"];
+    let currentCategory = "";
+    let questions = [];
+    let currentIndex = 0;
+    let selectedAnswer = null;
+    let score = 0;
+
+    // 1. Generowanie lub odczyt stałego tokenu urządzenia z localStorage
+    function getDeviceToken() {
+      let token = localStorage.getItem("szkola_device_token");
+      if (!token) {
+        const rand = Math.floor(1000 + Math.random() * 9000);
+        const chars = Math.random().toString(36).substring(2, 5).toUpperCase();
+        token = `DEV-${rand}-${chars}`;
+        localStorage.setItem("szkola_device_token", token);
+      }
+      return token;
+    }
+
+    function getFullIdentifier() {
+      const token = getDeviceToken();
+      const name = (localStorage.getItem("szkola_user_name") || "").trim();
+      return name ? `${name} [${token}]` : token;
+    }
+
+    function saveIdentity() {
+      const val = document.getElementById("user-name").value.trim();
+      if (!val) {
+        alert("Wpisz najpierw swoje Imię, Nazwisko i Klasę!");
+        return;
+      }
+      localStorage.setItem("szkola_user_name", val);
+      alert("Zapisano identyfikator: " + getFullIdentifier());
+    }
+
+    // 2. Obsługa startu strony i parametru ?quiz=... z kodu QR
+    window.addEventListener("DOMContentLoaded", () => {
+      document.getElementById("device-token").textContent = getDeviceToken();
+      const savedName = localStorage.getItem("szkola_user_name") || "";
+      document.getElementById("user-name").value = savedName;
+      updateButtonsLock();
+
+      const params = new URLSearchParams(window.location.search);
+      const quizParam = params.get("quiz");
+      if (quizParam) {
+        const matched = VALID_CATEGORIES.find(c => c.toLowerCase() === quizParam.toLowerCase());
+        if (matched) {
+          if (!savedName) {
+            // Jeśli uczeń wszedł prosto z kodu QR i nie ma jeszcze wpisanego nazwiska, poproś o nie przed startem
+            const entered = prompt(`Quiz: ${matched}\nWpisz swoje Imię, Nazwisko i Klasę (np. Anna Nowak 1C):`);
+            if (entered && entered.trim()) {
+              localStorage.setItem("szkola_user_name", entered.trim());
+              document.getElementById("user-name").value = entered.trim();
+            }
+          }
+          startQuiz(matched);
+        }
+      }
+    });
+
+    function updateButtonsLock() {
+      VALID_CATEGORIES.forEach(cat => {
+        const done = localStorage.getItem("done_" + cat);
+        const btn = document.getElementById("btn-" + cat);
+        if (done) {
+          btn.textContent = `${cat} ✓ (${done}/12)`;
+          btn.disabled = true;
+        }
+      });
+    }
+
+    // 3. Pobieranie pytań z Arkusza Google i uruchamianie quizu
+    async function startQuiz(category) {
+      const name = document.getElementById("user-name").value.trim();
+      if (!name) {
+        alert("Najpierw wpisz swoje Imię, Nazwisko i Klasę, żebyśmy wiedzieli komu wydać bon!");
+        document.getElementById("user-name").focus();
+        return;
+      }
+      localStorage.setItem("szkola_user_name", name);
+
+      if (localStorage.getItem("done_" + category)) {
+        alert("Na tym urządzeniu rozwiązałeś już quiz: " + category + " (zasada 1 próby).");
+        return;
+      }
+
+      currentCategory = category;
+      currentIndex = 0;
+      score = 0;
+      selectedAnswer = null;
+
+      document.getElementById("view-home").classList.add("hidden");
+      document.getElementById("view-result").classList.add("hidden");
+      document.getElementById("view-quiz").classList.remove("hidden");
+      document.getElementById("quiz-category-badge").textContent = "QUIZ: " + category.toUpperCase();
+      document.getElementById("question-text").textContent = "Pobieram pytania z Arkusza Google...";
+      document.getElementById("options-container").innerHTML = "";
+
+      try {
+        const res = await fetch(`${API_URL}?action=questions&kategoria=${encodeURIComponent(category)}`);
+        const data = await res.json();
+        if (data.status !== "ok" || !data.pytania || data.pytania.length === 0) {
+          throw new Error("Brak pytań w arkuszu dla kategorii " + category);
+        }
+        questions = data.pytania;
+        renderQuestion();
+      } catch (err) {
+        alert("Błąd połączenia z arkuszem: " + err.message);
+        goHome();
+      }
+    }
+
+    function renderQuestion() {
+      const q = questions[currentIndex];
+      selectedAnswer = null;
+      document.getElementById("next-btn").disabled = true;
+      document.getElementById("quiz-progress").textContent = `Pytanie ${currentIndex + 1} z ${questions.length}`;
+      document.getElementById("question-text").textContent = q.pytanie;
+
+      const container = document.getElementById("options-container");
+      container.innerHTML = "";
+
+      ["A", "B", "C", "D"].forEach(letter => {
+        const btn = document.createElement("button");
+        btn.className = "option";
+        btn.textContent = `${letter}) ${q.odpowiedzi[letter]}`;
+        btn.onclick = () => {
+          document.querySelectorAll(".option").forEach(el => el.classList.remove("selected"));
+          btn.classList.add("selected");
+          selectedAnswer = letter;
+          document.getElementById("next-btn").disabled = false;
+        };
+        container.appendChild(btn);
+      });
+
+      document.getElementById("next-btn").textContent =
+        (currentIndex === questions.length - 1) ? "Zakończ i wyślij wynik" : "Następne pytanie";
+    }
+
+    function nextQuestion() {
+      if (!selectedAnswer) return;
+      if (selectedAnswer === questions[currentIndex].poprawna) {
+        score++;
+      }
+      currentIndex++;
+      if (currentIndex < questions.length) {
+        renderQuestion();
+      } else {
+        finishQuiz();
+      }
+    }
+
+    // 4. Wysłanie wyniku do Arkusza Google i blokada kolejnej próby
+    async function finishQuiz() {
+      localStorage.setItem("done_" + currentCategory, score);
+      updateButtonsLock();
+
+      document.getElementById("view-quiz").classList.add("hidden");
+      document.getElementById("view-result").classList.remove("hidden");
+
+      const passed = score >= 8;
+      document.getElementById("result-title").textContent = `Twój wynik: ${score} / ${questions.length} pkt`;
+      document.getElementById("result-desc").textContent = passed
+        ? "Świetnie! Zaliczyłeś tę kategorię (min. 8 pkt). Zrób pozostałe quizy, aby odebrać bon."
+        : "Niestety zabrakło do progu 8 punktów. Zasada 1 próby została zapisana.";
+
+      const fullId = getFullIdentifier();
+      document.getElementById("confirm-id").textContent = fullId;
+      document.getElementById("confirm-cat").textContent = currentCategory;
+      document.getElementById("confirm-sync").textContent = "Zapisywanie w arkuszu...";
+
+      try {
+        const res = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({
+            kategoria: currentCategory,
+            identyfikator: fullId,
+            wynik: score
+          })
+        });
+        const result = await res.json();
+        if (result.status === "ok") {
+          document.getElementById("confirm-sync").textContent = "ZAPISANO W ARKUSZU ✓";
+          document.getElementById("confirm-sync").style.color = "#10b981";
+        } else {
+          document.getElementById("confirm-sync").textContent = result.message;
+          document.getElementById("confirm-sync").style.color = "#f59e0b";
+        }
+      } catch (e) {
+        document.getElementById("confirm-sync").textContent = "Błąd wysyłania (pokaż ten ekran przy odbiorze)";
+        document.getElementById("confirm-sync").style.color = "#ef4444";
+      }
+    }
+
+    // 5. Podgląd statusu i wolnych miejsc z zakładki "Bony i Limity"
+    async function checkLiveStatus() {
+      const box = document.getElementById("status-output");
+      box.classList.remove("hidden");
+      box.innerHTML = "<p class='muted'>Sprawdzam w arkuszu...</p>";
+
+      try {
+        const id = encodeURIComponent(getFullIdentifier());
+        const res = await fetch(`${API_URL}?action=status&id=${id}`);
+        const data = await res.json();
+
+        let html = "<div class='id-box'>";
+        if (data.uczen) {
+          html += `<b>Twój status:</b> ${data.uczen.status || "W trakcie"}<br>`;
+          html += `<span class='muted'>Stres: ${data.uczen.stres} | Odpoczynek: ${data.uczen.odpoczynek} | Wyciszenie: ${data.uczen.wyciszenie}</span>`;
+        } else {
+          html += "<span class='muted'>Nie wysłałeś jeszcze żadnego quizu z tego urządzenia.</span>";
+        }
+        html += "<hr style='border-color:#334155; margin:12px 0;'><b>Wolne miejsca na lekcje relaksu:</b><ul style='padding-left:18px; margin:8px 0;'>";
+        data.lekcje.forEach(l => {
+          html += `<li>${l.lekcja}: <b>${l.wolne}</b> wolnych miejsc (z ${l.limit})</li>`;
+        });
+        html += "</ul></div>";
+        box.innerHTML = html;
+      } catch (e) {
+        box.innerHTML = "<p class='muted'>Nie udało się pobrać statusu.</p>";
+      }
+    }
+
+    function goHome() {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      document.getElementById("view-quiz").classList.add("hidden");
+      document.getElementById("view-result").classList.add("hidden");
+      document.getElementById("view-home").classList.remove("hidden");
+      updateButtonsLock();
+    }
+  </script>
+</body>
+</html>
