@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Strefa Spokoju – Quizy Zdrowotne</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f2f3e9;
+      --card: #fffef9;
+      --accent: #527b61;
+      --accent-hover: #426a51;
+      --warn: #8a6740;
+      --danger: #a64e4e;
+      --text: #263b32;
+      --muted: #68796d;
+      --border: #e2e6d9;
+    }
+    * { box-sizing: border-box; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(ellipse at 8% 12%, rgba(184, 197, 151, 0.22), transparent 32rem),
+        radial-gradient(ellipse at 90% 82%, rgba(215, 197, 161, 0.2), transparent 30rem),
+        var(--bg);
+      color: var(--text);
+      display: flex; justify-content: center; padding: 48px 20px; min-height: 100vh;
+    }
+    .container { width: 100%; max-width: 700px; margin: auto 0; }
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 24px;
+      padding: clamp(24px, 6vw, 48px); box-shadow: 0 16px 42px rgba(62, 72, 48, 0.09);
+      margin-bottom: 16px;
+      animation: rise-in 650ms cubic-bezier(.2, .75, .25, 1) both;
+    }
+    h1, h2 { margin-top: 0; letter-spacing: -0.035em; }
+    h1 { font-size: clamp(2.4rem, 8vw, 4.2rem); line-height: 1.02; margin-bottom: 16px; }
+    h2 { font-size: 1.35rem; }
+    p { line-height: 1.7; }
+    .hero { position: relative; overflow: hidden; }
+    .hero::after {
+      content: ""; position: absolute; width: 210px; height: 210px; right: -105px; top: -115px;
+      background: rgba(204, 216, 184, 0.22); border-radius: 48% 52% 62% 38%;
+      transform: rotate(28deg);
+      pointer-events: none;
+    }
+    .badge {
+      display: inline-block; background: #edf1e5; color: #527052;
+      padding: 7px 11px; border-radius: 8px; font-weight: 700; font-size: 0.78rem;
+      letter-spacing: 0.055em; margin-bottom: 18px;
+    }
+    .id-box {
+      background: #f7f8f1; border: 1px solid var(--border);
+      padding: 20px; border-radius: 18px; margin: 26px 0;
+    }
+    input[type="text"], select {
+      width: 100%; padding: 14px 15px; border-radius: 12px; border: 1px solid #d9dfd2;
+      background: #fff; color: var(--text); font-size: 1rem; margin-top: 10px;
+      outline: none; transition: border-color 180ms ease, box-shadow 180ms ease;
+    }
+    input[type="text"]:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(82, 123, 97, 0.12); }
+    .btn {
+      display: inline-block; width: 100%; padding: 14px 18px; border: 1px solid transparent;
+      border-radius: 12px; background: var(--accent); color: #fffef9; font-weight: 750;
+      font-size: 1rem; cursor: pointer; text-align: center; text-decoration: none; margin-top: 10px;
+      transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+    }
+    .btn:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 7px 16px rgba(62, 88, 59, 0.14); }
+    .btn-secondary { background: #edf1e8; color: #385344; border-color: #e0e6da; }
+    .btn-secondary:hover { background: #e4ebde; border-color: #d3ddce; }
+    .btn-warning { background: #d69e2e; color: #fff; }
+    .btn-warning:hover { background: #b7791f; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .option {
+      display: block; width: 100%; text-align: left; background: #f8f9f4;
+      border: 1px solid var(--border); color: var(--text); padding: 15px;
+      border-radius: 12px; margin-bottom: 10px; cursor: pointer; font-size: 0.98rem;
+      transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+    }
+    .option:hover { border-color: var(--accent); transform: translateX(3px); }
+    .option.selected { border-color: var(--accent); background: #edf3e9; }
+    .quiz-progress-track { height: 8px; overflow: hidden; border-radius: 999px; background: #e7ebdf; margin: 12px 0 24px; }
+    .quiz-progress-fill { width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #527b61, #93b982); transition: width 240ms ease; }
+    .option:focus-visible, .btn:focus-visible { outline: 3px solid rgba(82, 123, 97, 0.45); outline-offset: 3px; }
+    .feedback { min-height: 1.5em; margin: 12px 0 0; color: var(--muted); }
+    .feedback.error { color: var(--danger); }
+    .reward-note { padding: 12px; border-radius: 12px; background: #fff6db; color: #76531b; line-height: 1.55; }
+    .hidden { display: none; }
+    .muted { color: var(--muted); font-size: 0.9rem; }
+    .token-display {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 1.15rem; color: var(--warn); font-weight: bold; margin-top: 6px;
+    }
+    .qr-note {
+      display: flex; align-items: flex-start; gap: 14px; padding: 18px;
+      border: 1px solid #dce5d4; border-radius: 16px;
+      background: linear-gradient(120deg, #f1f5eb, #fafaf4);
+      margin: 26px 0 10px;
+    }
+    .qr-icon {
+      display: grid; place-items: center; flex: 0 0 42px; height: 42px;
+      border-radius: 12px; background: #e5eddc; color: var(--accent); font-size: 1.25rem;
+    }
+    .qr-note p { margin: 2px 0 0; }
+    .section-label { color: var(--text); font-weight: 700; margin: 0 0 5px !important; }
+    hr { border: 0; border-top: 1px solid var(--border); }
+    @keyframes rise-in {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- EKRAN 1: IDENTYFIKACJA URZĄDZENIA + PANEL GŁÓWNY -->
+    <div id="view-home" class="card hero">
+      <h1>Strefa Spokoju</h1>
+      <p class="muted">Zatrzymaj się na chwilę, sprawdź swoją wiedzę i zadbaj o dobry odpoczynek. Zaliczenie quizów pozwoli Ci odebrać w bibliotece bon na 45 minut relaksu.</p>
+
+      <div class="id-box">
+        <div class="muted">Twój kod urządzenia</div>
+        <div id="device-token" class="token-display">...</div>
+        <p id="qr-message" class="muted hidden" role="status" aria-live="polite"></p>
+        <div style="margin-top: 12px;">
+          <label for="user-name" class="muted">Imię, nazwisko i klasa <span aria-hidden="true">*</span></label>
+          <input type="text" id="user-name" placeholder="np. Jan Kowalski 2B" autocomplete="name" />
+        </div>
+        <button class="btn btn-secondary" onclick="saveIdentity()">Zapisz moje dane</button>
+      </div>
+
+      <div class="qr-note">
+        <div class="qr-icon" aria-hidden="true">▦</div>
+        <div>
+          <p class="section-label">Rozpocznij przez kod QR</p>
+          <p class="muted">Zeskanuj kod QR przypisany do quizu, aby otworzyć właściwe pytania. Każdy quiz uruchamia się z osobnego kodu.</p>
+        </div>
+      </div>
+
+      <div style="margin-top: 24px;">
+        <button class="btn btn-secondary" onclick="checkLiveStatus()">Odśwież moje wyniki i wolne miejsca</button>
+        <div id="status-output" class="hidden" style="margin-top: 14px;"></div>
+      </div>
+    </div>
+
+    <!-- EKRAN 2: ROZWIĄZYWANIE QUIZU -->
+    <div id="view-quiz" class="card hidden">
+      <div class="badge" id="quiz-category-badge">QUIZ</div>
+      <div class="muted" id="quiz-progress">Pytanie 1 z 12</div>
+      <div class="quiz-progress-track" role="progressbar" aria-label="Postęp quizu" aria-valuemin="0" aria-valuemax="12" aria-valuenow="0">
+        <div class="quiz-progress-fill" id="quiz-progress-fill"></div>
+      </div>
+      <h2 id="question-text" style="margin-top: 8px;">Ładowanie pytań z arkusza...</h2>
+      <div id="options-container"></div>
+      <p id="quiz-feedback" class="feedback" aria-live="polite"></p>
+      <button class="btn" id="next-btn" onclick="nextQuestion()" disabled>Następne pytanie</button>
+    </div>
+
+    <!-- EKRAN 3: WYNIK I POTWIERDZENIE Z URZĄDZENIA -->
+    <div id="view-result" class="card hidden">
+      <div class="badge">POTWIERDZENIE WYKONANIA QUIZU</div>
+      <h1 id="result-title">Twój wynik: 0 / 12</h1>
+      <p id="result-desc"></p>
+
+      <div class="id-box">
+        <div class="muted">Identyfikator do pokazania przy odbiorze bonu:</div>
+        <div id="confirm-id" class="token-display" style="font-size: 1.3rem;"></div>
+        <div class="muted" style="margin-top: 6px;">Kategoria: <b id="confirm-cat"></b> • Status zapisu: <b id="confirm-sync">Wysyłanie...</b></div>
+      </div>
+      <p id="reward-check-feedback" class="feedback" role="status"></p>
+
+      <!-- NOWY PANEL WYBORU BONU / LEKCJI (POJAWIA SIĘ PO ZALICZENIU 3 QUIZÓW) -->
+      <div id="reward-section" class="hidden" style="background: #fffbea; border: 2px solid #f6e05e; padding: 20px; border-radius: 18px; margin-top: 20px;">
+        <h3 style="margin-top:0; color: #b7791f;">🎉 Gratulacje! Masz zaliczone wszystkie 3 quizy!</h3>
+        <p class="muted" style="margin-bottom: 12px;">Dostępne terminy z arkusza:</p>
+        <select id="select-lesson" aria-label="Dostępne terminy">
+          <option value="">Pobieram dostępne terminy...</option>
+        </select>
+        <p id="booking-note" class="reward-note" role="status">Sprawdzam dostępność rezerwacji...</p>
+        <button class="btn btn-warning" id="reserve-btn" type="button" onclick="reserveLesson()" disabled style="margin-top: 12px;">Wybierz dostępny termin</button>
+      </div>
+
+      <button class="btn btn-secondary hidden" id="retry-send-btn" onclick="retryPendingResult()">Ponów wysyłkę wyniku</button>
+      <button class="btn" onclick="goHome()" style="margin-top: 12px;">Wróć do panelu głównego</button>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = "https://script.google.com/macros/s/AKfycbz2jaueHpotGGduBg8vxCgSRf_MjpdhpR0HuwMDM6aG18m78CFi2sUcL1lEyUzsc5YYXA/exec";
+
+    const VALID_CATEGORIES = ["Stres", "Odpoczynek", "Wyciszenie"];
+    const QUESTION_COUNT = 12;
+    const PASS_SCORE = 8;
+    const ANSWER_KEYS = ["A", "B", "C", "D"];
+    let currentCategory = "";
+    let questions = [];
+    let currentIndex = 0;
+    let selectedAnswer = null;
+    let score = 0;
+    let pendingResult = null;
+    let pendingResultStored = false;
+    let pendingResultSaveError = "";
+    let pendingQrCategory = "";
+    let bookingInProgress = false;
+
+    function getDeviceToken() {
+      let token = localStorage.getItem("szkola_device_token");
+      if (!token) {
+        const rand = Math.floor(1000 + Math.random() * 9000);
+        const chars = Math.random().toString(36).substring(2, 5).toUpperCase();
+        token = `DEV-${rand}-${chars}`;
+        localStorage.setItem("szkola_device_token", token);
+      }
+      return token;
+    }
+
+    function getFullIdentifier() {
+      const token = getDeviceToken();
+      const name = (localStorage.getItem("szkola_user_name") || "").trim();
+      return name ? `${name} [${token}]` : token;
+    }
+
+    function saveIdentity() {
+      const val = document.getElementById("user-name").value.trim();
+      if (!val) {
+        alert("Wpisz najpierw swoje Imię, Nazwisko i Klasę!");
+        return;
+      }
+      localStorage.setItem("szkola_user_name", val);
+      if (pendingQrCategory) {
+        const category = pendingQrCategory;
+        pendingQrCategory = "";
+        startQuiz(category);
+        return;
+      }
+      alert("Zapisano identyfikator: " + getFullIdentifier());
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      document.getElementById("device-token").textContent = getDeviceToken();
+      const savedName = localStorage.getItem("szkola_user_name") || "";
+      document.getElementById("user-name").value = savedName;
+
+      const params = new URLSearchParams(window.location.search);
+      const quizParam = params.get("quiz");
+      if (quizParam !== null) {
+        const matched = VALID_CATEGORIES.find(c => c.toLowerCase() === quizParam.trim().toLowerCase());
+        const qrMessage = document.getElementById("qr-message");
+        qrMessage.classList.remove("hidden");
+        if (!matched) {
+          qrMessage.textContent = `Nie rozpoznaję kategorii „${quizParam}” w tym linku QR.`;
+        } else if (!savedName) {
+          pendingQrCategory = matched;
+          qrMessage.textContent = `Link QR otwiera quiz „${matched}”. Wpisz dane i kliknij „Zapisz moje dane”.`;
+          document.getElementById("user-name").focus();
+        } else {
+          startQuiz(matched);
+        }
+      }
+    });
+
+    async function startQuiz(category) {
+      if (!VALID_CATEGORIES.includes(category)) {
+        alert("Nieprawidłowa kategoria quizu.");
+        return;
+      }
+      const name = document.getElementById("user-name").value.trim();
+      if (!name) {
+        alert("Najpierw wpisz swoje Imię, Nazwisko i Klasę!");
+        document.getElementById("user-name").focus();
+        return;
+      }
+      localStorage.setItem("szkola_user_name", name);
+      currentCategory = category;
+
+      const savedPendingResult = getPendingResult(category);
+      if (savedPendingResult) {
+        pendingResult = savedPendingResult;
+        pendingResultStored = true;
+        showResult(savedPendingResult, "Wynik czeka na zapisanie.");
+        return;
+      }
+
+      if (localStorage.getItem("done_" + category)) {
+        alert("Na tym urządzeniu quiz „" + category + "” został już rozwiązany.");
+        return;
+      }
+
+      currentIndex = 0;
+      score = 0;
+      selectedAnswer = null;
+
+      document.getElementById("view-home").classList.add("hidden");
+      document.getElementById("view-result").classList.add("hidden");
+      document.getElementById("view-quiz").classList.remove("hidden");
+      document.getElementById("quiz-category-badge").textContent = "QUIZ: " + category.toUpperCase();
+      document.getElementById("question-text").textContent = "Pobieram pytania...";
+      document.getElementById("quiz-feedback").textContent = "";
+
+      try {
+        const res = await fetch(`${API_URL}?action=questions&kategoria=${encodeURIComponent(category)}`);
+        if (!res.ok) {
+          throw new Error(`Serwer zwrócił błąd HTTP ${res.status}.`);
+        }
+        const data = await res.json();
+        if (!data || data.status !== "ok" || !Array.isArray(data.pytania)) {
+          throw new Error(data && data.message ? data.message : "Arkusz zwrócił nieprawidłową odpowiedź.");
+        }
+        validateQuestions(data.pytania, category);
+        questions = data.pytania;
+        renderQuestion();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Nieznany błąd.";
+        alert("Nie udało się pobrać pytań: " + message);
+        goHome();
+      }
+    }
+
+    function validateQuestions(questionList, category) {
+      if (questionList.length !== QUESTION_COUNT) {
+        throw new Error(`Quiz „${category}” musi mieć ${QUESTION_COUNT} pytań; otrzymano ${questionList.length}.`);
+      }
+
+      questionList.forEach((question, index) => {
+        const correctAnswer = typeof question?.poprawna === "string"
+          ? question.poprawna.trim().toUpperCase()
+          : "";
+        const isValid = question &&
+          typeof question.pytanie === "string" &&
+          question.pytanie.trim() &&
+          question.odpowiedzi &&
+          ANSWER_KEYS.every(key =>
+            typeof question.odpowiedzi[key] === "string" && question.odpowiedzi[key].trim()
+          ) &&
+          ANSWER_KEYS.includes(correctAnswer);
+        if (!isValid) {
+          throw new Error(`Pytanie ${index + 1} w quizie „${category}” ma nieprawidłową treść lub odpowiedzi.`);
+        }
+        question.poprawna = correctAnswer;
+      });
+    }
+
+    function renderQuestion() {
+      const q = questions[currentIndex];
+      selectedAnswer = null;
+      document.getElementById("next-btn").disabled = true;
+      document.getElementById("quiz-progress").textContent = `Pytanie ${currentIndex + 1} z ${questions.length}`;
+      const progress = document.querySelector('[role="progressbar"][aria-label="Postęp quizu"]');
+      progress.setAttribute("aria-valuemax", String(questions.length));
+      progress.setAttribute("aria-valuenow", String(currentIndex));
+      document.getElementById("quiz-progress-fill").style.width = `${(currentIndex / questions.length) * 100}%`;
+      document.getElementById("quiz-feedback").textContent = "";
+      document.getElementById("question-text").textContent = q.pytanie;
+
+      const container = document.getElementById("options-container");
+      container.replaceChildren();
+
+      ["A", "B", "C", "D"].forEach(letter => {
+        const btn = document.createElement("button");
+        btn.className = "option";
+        btn.textContent = `${letter}) ${q.odpowiedzi[letter]}`;
+        btn.onclick = () => {
+          document.querySelectorAll(".option").forEach(el => el.classList.remove("selected"));
+          btn.classList.add("selected");
+          selectedAnswer = letter;
+          document.getElementById("next-btn").disabled = false;
+          document.getElementById("quiz-feedback").textContent = "Odpowiedź wybrana. Możesz przejść dalej.";
+        };
+        container.appendChild(btn);
+      });
+
+      document.getElementById("next-btn").textContent =
+        (currentIndex === questions.length - 1) ? "Zakończ i wyślij wynik" : "Następne pytanie";
+    }
+
+    function nextQuestion() {
+      if (!selectedAnswer || currentIndex >= questions.length) return;
+      document.getElementById("next-btn").disabled = true;
+      if (selectedAnswer === questions[currentIndex].poprawna) {
+        score++;
+      }
+      currentIndex++;
+      if (currentIndex < questions.length) {
+        renderQuestion();
+      } else {
+        finishQuiz();
+      }
+    }
+
+    async function finishQuiz() {
+      pendingResult = { kategoria: currentCategory, identyfikator: getFullIdentifier(), wynik: score };
+      pendingResultStored = false;
+      pendingResultSaveError = "";
+      try {
+        localStorage.setItem(getPendingResultKey(currentCategory), JSON.stringify(pendingResult));
+        pendingResultStored = true;
+      } catch (err) {
+        pendingResultSaveError = err instanceof Error ? err.message : "nieznany błąd pamięci przeglądarki";
+      }
+      await showResult(pendingResult, "Zapisywanie w arkuszu...");
+      await sendPendingResult();
+    }
+
+    function getPendingResultKey(category) { return "pending_result_" + category; }
+
+    function getPendingResult(category) {
+      const raw = localStorage.getItem(getPendingResultKey(category));
+      if (!raw) return null;
+      try {
+        const result = JSON.parse(raw);
+        const valid = result &&
+          result.kategoria === category &&
+          VALID_CATEGORIES.includes(result.kategoria) &&
+          typeof result.identyfikator === "string" &&
+          Number.isInteger(result.wynik) &&
+          result.wynik >= 0 &&
+          result.wynik <= QUESTION_COUNT;
+        if (!valid) throw new Error("Nieprawidłowy zapis oczekującego wyniku.");
+        return result;
+      } catch {
+        localStorage.removeItem(getPendingResultKey(category));
+        alert("Zapis oczekującego wyniku jest uszkodzony. Możesz ponownie rozwiązać quiz.");
+        return null;
+      }
+    }
+
+    async function showResult(result, statusMessage) {
+      currentCategory = result.kategoria;
+      score = result.wynik;
+      document.getElementById("view-home").classList.add("hidden");
+      document.getElementById("view-quiz").classList.add("hidden");
+      document.getElementById("view-result").classList.remove("hidden");
+      document.getElementById("result-title").textContent = `Twój wynik: ${result.wynik} / ${QUESTION_COUNT} pkt`;
+      document.getElementById("result-desc").textContent = result.wynik >= PASS_SCORE
+        ? `Świetnie! Zaliczyłeś tę kategorię (min. ${PASS_SCORE} pkt).`
+        : `Niestety zabrakło do progu ${PASS_SCORE} punktów.`;
+      document.getElementById("confirm-id").textContent = result.identyfikator;
+      document.getElementById("confirm-cat").textContent = result.kategoria;
+      document.getElementById("confirm-sync").textContent = statusMessage;
+      document.getElementById("retry-send-btn").classList.remove("hidden");
+      document.getElementById("retry-send-btn").disabled = false;
+      document.getElementById("reward-section").classList.add("hidden");
+
+      await checkRewardEligibility();
+    }
+
+    async function retryPendingResult() {
+      if (!pendingResult && currentCategory) {
+        pendingResult = getPendingResult(currentCategory);
+        pendingResultStored = Boolean(pendingResult);
+      }
+      if (!pendingResult) {
+        alert("Nie znaleziono wyniku do ponownego wysłania.");
+        return;
+      }
+      await sendPendingResult();
+    }
+
+    async function sendPendingResult() {
+      const retryButton = document.getElementById("retry-send-btn");
+      const resultToSend = pendingResult;
+      if (!resultToSend) {
+        retryButton.disabled = false;
+        throw new Error("Nie ma wyniku oczekującego na wysłanie.");
+      }
+      retryButton.disabled = true;
+      document.getElementById("confirm-sync").textContent = "Zapisywanie w arkuszu...";
+      try {
+        const res = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({
+            kategoria: resultToSend.kategoria,
+            identyfikator: resultToSend.identyfikator,
+            wynik: resultToSend.wynik
+          })
+        });
+        if (!res.ok) {
+          throw new Error(`Serwer zwrócił błąd HTTP ${res.status}.`);
+        }
+        const data = await res.json();
+        if (data && data.status === "duplicate") {
+          const id = encodeURIComponent(resultToSend.identyfikator);
+          const statusResponse = await fetch(`${API_URL}?action=status&id=${id}`);
+          if (!statusResponse.ok) {
+            throw new Error(`Serwer zwrócił błąd HTTP ${statusResponse.status} podczas weryfikacji zapisu.`);
+          }
+          const statusData = await statusResponse.json();
+          const categoryKey = resultToSend.kategoria.toLowerCase();
+          if (!statusData.uczen || Number(statusData.uczen[categoryKey]) !== resultToSend.wynik) {
+            throw new Error("Quiz jest już zapisany w arkuszu z innym wynikiem. Nie nadpisano istniejącego zapisu.");
+          }
+        } else if (!data || data.status !== "ok") {
+          throw new Error(data && data.message ? data.message : "Arkusz nie potwierdził zapisu wyniku.");
+        }
+
+        const savedCategory = resultToSend.kategoria;
+        localStorage.setItem("done_" + savedCategory, resultToSend.wynik);
+        localStorage.removeItem(getPendingResultKey(savedCategory));
+        pendingResult = null;
+        pendingResultStored = false;
+        document.getElementById("confirm-sync").textContent = "ZAPISANO W ARKUSZU ✓";
+        document.getElementById("confirm-sync").style.color = "#527b61";
+        retryButton.classList.add("hidden");
+        await checkRewardEligibility();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Nieznany błąd.";
+        const storageMessage = pendingResultStored
+          ? ""
+          : ` Wynik nie został zachowany w pamięci urządzenia (${pendingResultSaveError}); nie zamykaj tej strony.`;
+        document.getElementById("confirm-sync").textContent = `Błąd zapisu: ${message}.${storageMessage}`;
+        retryButton.classList.remove("hidden");
+        retryButton.disabled = false;
+      }
+    }
+
+    async function checkRewardEligibility() {
+      const feedback = document.getElementById("reward-check-feedback");
+      feedback.textContent = "";
+      const rewardSection = document.getElementById("reward-section");
+      rewardSection.classList.add("hidden");
+      try {
+        const id = encodeURIComponent(getFullIdentifier());
+        const res = await fetch(`${API_URL}?action=status&id=${id}`);
+        if (!res.ok) {
+          throw new Error(`Serwer zwrócił błąd HTTP ${res.status}.`);
+        }
+        const data = await res.json();
+
+        if (data.status === "ok" && data.uczen) {
+          const u = data.uczen;
+          const passedAll = ["stres", "odpoczynek", "wyciszenie"].every(
+            category => Number.isFinite(Number(u[category])) && Number(u[category]) >= PASS_SCORE
+          );
+          if (passedAll) {
+            rewardSection.classList.remove("hidden");
+            feedback.classList.remove("error");
+
+            const select = document.getElementById("select-lesson");
+            const reserveButton = document.getElementById("reserve-btn");
+            const bookingNote = document.getElementById("booking-note");
+            const existingBooking = typeof u.bon === "string" && u.bon.trim() &&
+              u.bon.trim().toLowerCase() !== "brak";
+            select.disabled = Boolean(existingBooking);
+            reserveButton.disabled = true;
+            if (existingBooking) {
+              select.replaceChildren();
+              const bookedOption = document.createElement("option");
+              bookedOption.textContent = u.bon;
+              select.appendChild(bookedOption);
+              bookingNote.textContent = u.termin
+                ? `Masz już przydzielony bon ${u.bon} na termin: ${u.termin}.`
+                : `Masz już przydzielony bon: ${u.bon}`;
+              reserveButton.textContent = "Termin zarezerwowany";
+              scrollToRewardSection(rewardSection);
+              return;
+            }
+
+            select.replaceChildren();
+            const placeholder = document.createElement("option");
+            placeholder.value = "";
+            placeholder.textContent = "Wybierz termin";
+            select.appendChild(placeholder);
+            reserveButton.disabled = true;
+            reserveButton.textContent = "Wybierz dostępny termin";
+            bookingNote.textContent = "Dostępne terminy z arkusza.";
+            let reservableCount = 0;
+
+            if (Array.isArray(data.lekcje) && data.lekcje.length > 0) {
+              data.lekcje.forEach(lesson => {
+                const lessonName = lesson && (lesson.termin ?? lesson.lekcja);
+                if (!lesson || typeof lessonName !== "string" || !lessonName.trim()) {
+                  throw new Error("Arkusz zwrócił nieprawidłową nazwę terminu.");
+                }
+                const option = document.createElement("option");
+                const available = Number(lesson.wolne);
+                const limit = Number(lesson.limit);
+                const rowIndex = Number(lesson.index);
+                const hasValidRow = Number.isInteger(rowIndex) && rowIndex >= 2;
+                option.value = hasValidRow ? String(rowIndex) : "";
+                option.textContent = `${lessonName} (wolne: ${Number.isFinite(available) ? available : "—"}/${Number.isFinite(limit) ? limit : "—"})`;
+                option.disabled = !hasValidRow || !Number.isFinite(available) || available <= 0;
+                option.dataset.lessonName = lessonName;
+                if (!option.disabled) reservableCount++;
+                select.appendChild(option);
+              });
+            } else {
+              bookingNote.textContent = "Brak terminów w arkuszu.";
+            }
+
+            if (reservableCount > 0) {
+              bookingNote.textContent = "Wybierz termin z wolnym miejscem, aby zarezerwować bon.";
+              reserveButton.textContent = "Zarezerwuj wybrany termin";
+              select.onchange = updateReservationButton;
+              updateReservationButton();
+            } else if (Array.isArray(data.lekcje) && data.lekcje.length > 0) {
+              bookingNote.textContent = "Brak rezerwacji online: arkusz nie udostępnia prawidłowego numeru wiersza w polu „index” albo wszystkie miejsca są zajęte.";
+              reserveButton.textContent = "Rezerwacja niedostępna";
+            }
+            scrollToRewardSection(rewardSection);
+          } else {
+            feedback.classList.remove("error");
+            feedback.textContent = `Panel bonu pojawi się po uzyskaniu co najmniej ${PASS_SCORE}/${QUESTION_COUNT} punktów z każdego z trzech quizów.`;
+          }
+        } else if (data.status !== "ok") {
+          throw new Error(data.message || "Arkusz nie zwrócił statusu ucznia.");
+        } else {
+          feedback.classList.remove("error");
+          feedback.textContent = "Nie znaleziono jeszcze zapisanych wyników dla tego identyfikatora.";
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Nieznany błąd.";
+        feedback.textContent = `Nie udało się sprawdzić, czy przysługuje bon: ${message}`;
+        feedback.classList.add("error");
+      }
+    }
+
+    function scrollToRewardSection(section) {
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      window.setTimeout(() => {
+        section.scrollIntoView({
+          behavior: reduceMotion ? "auto" : "smooth",
+          block: "center"
+        });
+      }, 50);
+    }
+
+    function updateReservationButton() {
+      const select = document.getElementById("select-lesson");
+      const option = select.options[select.selectedIndex];
+      const rowIndex = Number(select.value);
+      const canReserve = option && !option.disabled && Number.isInteger(rowIndex) && rowIndex >= 2;
+      document.getElementById("reserve-btn").disabled = !canReserve || bookingInProgress;
+    }
+
+    async function reserveLesson() {
+      const select = document.getElementById("select-lesson");
+      const option = select.options[select.selectedIndex];
+      const rowIndex = Number(select.value);
+      const lessonName = option && option.dataset.lessonName;
+      const reserveButton = document.getElementById("reserve-btn");
+      const bookingNote = document.getElementById("booking-note");
+
+      if (!option || option.disabled || !Number.isInteger(rowIndex) || rowIndex < 2 || !lessonName) {
+        bookingNote.textContent = "Wybierz dostępny termin z listy.";
+        return;
+      }
+      if (bookingInProgress) return;
+
+      bookingInProgress = true;
+      reserveButton.disabled = true;
+      reserveButton.textContent = "Rezerwuję...";
+      bookingNote.textContent = "Wysyłam prośbę o rezerwację...";
+      try {
+        const res = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({
+            action: "reserve",
+            identyfikator: getFullIdentifier(),
+            rowIndex,
+            wybranaLekcja: lessonName
+          })
+        });
+        if (!res.ok) {
+          throw new Error(`Serwer zwrócił błąd HTTP ${res.status}.`);
+        }
+        const result = await res.json();
+        if (!result || result.status !== "ok") {
+          throw new Error(result && result.message ? result.message : "Arkusz nie potwierdził rezerwacji.");
+        }
+
+        bookingNote.textContent = result.message || "Termin został zarezerwowany.";
+        reserveButton.textContent = "Termin zarezerwowany";
+        select.disabled = true;
+        document.getElementById("confirm-sync").textContent = "BON ZAREZERWOWANY ✓";
+        document.getElementById("confirm-sync").style.color = "#527b61";
+        await checkLiveStatus();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Nieznany błąd.";
+        bookingNote.textContent = `Nie udało się potwierdzić rezerwacji: ${message}. Sprawdź status bonu przed ponowną próbą.`;
+        reserveButton.textContent = "Ponów rezerwację";
+      } finally {
+        bookingInProgress = false;
+        updateReservationButton();
+      }
+    }
+
+    async function checkLiveStatus() {
+      const box = document.getElementById("status-output");
+      box.classList.remove("hidden");
+      box.replaceChildren();
+      const loading = document.createElement("p");
+      loading.className = "muted";
+      loading.textContent = "Sprawdzam w arkuszu...";
+      box.appendChild(loading);
+
+      try {
+        const id = encodeURIComponent(getFullIdentifier());
+        const res = await fetch(`${API_URL}?action=status&id=${id}`);
+        if (!res.ok) {
+          throw new Error(`Serwer zwrócił błąd HTTP ${res.status}.`);
+        }
+        const data = await res.json();
+        if (!data || data.status !== "ok" || !Array.isArray(data.lekcje)) {
+          throw new Error(data && data.message ? data.message : "Arkusz zwrócił nieprawidłową odpowiedź.");
+        }
+
+        const statusCard = document.createElement("div");
+        statusCard.className = "id-box";
+        statusCard.style.marginTop = "10px";
+        if (data.uczen) {
+          const points = document.createElement("p");
+          points.textContent = `Twoje punkty: Stres: ${data.uczen.stres ?? "—"}, Odpoczynek: ${data.uczen.odpoczynek ?? "—"}, Wyciszenie: ${data.uczen.wyciszenie ?? "—"}`;
+          statusCard.appendChild(points);
+          const studentStatus = document.createElement("p");
+          studentStatus.textContent = `Status: ${data.uczen.status || "W trakcie"}`;
+          statusCard.appendChild(studentStatus);
+          if (data.uczen.bon) {
+            const reward = document.createElement("p");
+            reward.textContent = data.uczen.termin
+              ? `Twój bon: ${data.uczen.bon} • Termin: ${data.uczen.termin}`
+              : `Twój bon/lekcja: ${data.uczen.bon}`;
+            statusCard.appendChild(reward);
+          }
+        } else {
+          const noResults = document.createElement("p");
+          noResults.className = "muted";
+          noResults.textContent = "Brak wpisów dla Twojego identyfikatora.";
+          statusCard.appendChild(noResults);
+        }
+        const divider = document.createElement("hr");
+        divider.style.margin = "10px 0";
+        statusCard.appendChild(divider);
+        const availableTitle = document.createElement("b");
+        availableTitle.textContent = "Wolne miejsca:";
+        statusCard.appendChild(availableTitle);
+        const list = document.createElement("ul");
+        list.style.margin = "5px 0 0 15px";
+        list.style.padding = "0";
+        data.lekcje.forEach(lesson => {
+          const lessonName = lesson && (lesson.termin ?? lesson.lekcja);
+          if (!lesson || typeof lessonName !== "string") {
+            throw new Error("Arkusz zwrócił nieprawidłową nazwę terminu.");
+          }
+          const item = document.createElement("li");
+          item.textContent = `${lessonName} — Wolne: ${lesson.wolne ?? "—"} / ${lesson.limit ?? "—"}`;
+          list.appendChild(item);
+        });
+        statusCard.appendChild(list);
+        box.replaceChildren(statusCard);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Nieznany błąd.";
+        const error = document.createElement("p");
+        error.className = "feedback error";
+        error.textContent = `Nie udało się pobrać statusu: ${message}`;
+        box.replaceChildren(error);
+      }
+    }
+
+    function goHome() {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      document.getElementById("view-quiz").classList.add("hidden");
+      document.getElementById("view-result").classList.add("hidden");
+      document.getElementById("view-home").classList.remove("hidden");
+    }
+  </script>
+</body>
+</html>
