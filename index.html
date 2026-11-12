@@ -533,10 +533,11 @@
         if (data.status === "ok" && data.uczen) {
           const u = data.uczen;
           const passedAll = ["stres", "odpoczynek", "wyciszenie"].every(
-            category => Number(u[category]) >= PASS_SCORE
+            category => Number.isFinite(Number(u[category])) && Number(u[category]) >= PASS_SCORE
           );
           if (passedAll) {
             rewardSection.classList.remove("hidden");
+            feedback.classList.remove("error");
 
             const select = document.getElementById("select-lesson");
             const reserveButton = document.getElementById("reserve-btn");
@@ -552,6 +553,7 @@
               select.appendChild(bookedOption);
               bookingNote.textContent = `Masz już zarezerwowany termin: ${u.bon}`;
               reserveButton.textContent = "Termin zarezerwowany";
+              scrollToRewardSection(rewardSection);
               return;
             }
 
@@ -596,15 +598,32 @@
               bookingNote.textContent = "Brak rezerwacji online: arkusz nie udostępnia prawidłowego numeru wiersza w polu „index” albo wszystkie miejsca są zajęte.";
               reserveButton.textContent = "Rezerwacja niedostępna";
             }
+            scrollToRewardSection(rewardSection);
+          } else {
+            feedback.classList.remove("error");
+            feedback.textContent = `Panel bonu pojawi się po uzyskaniu co najmniej ${PASS_SCORE}/${QUESTION_COUNT} punktów z każdego z trzech quizów.`;
           }
         } else if (data.status !== "ok") {
           throw new Error(data.message || "Arkusz nie zwrócił statusu ucznia.");
+        } else {
+          feedback.classList.remove("error");
+          feedback.textContent = "Nie znaleziono jeszcze zapisanych wyników dla tego identyfikatora.";
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Nieznany błąd.";
         feedback.textContent = `Nie udało się sprawdzić, czy przysługuje bon: ${message}`;
         feedback.classList.add("error");
       }
+    }
+
+    function scrollToRewardSection(section) {
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      window.setTimeout(() => {
+        section.scrollIntoView({
+          behavior: reduceMotion ? "auto" : "smooth",
+          block: "center"
+        });
+      }, 50);
     }
 
     function updateReservationButton() {
