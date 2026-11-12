@@ -141,6 +141,23 @@
       </div>
 
       <div style="margin-top: 24px;">
+        <button class="btn btn-warning" id="open-registration-btn" type="button" onclick="openRegistration()" disabled>
+          Sprawdzam uprawnienia do rejestracji...
+        </button>
+        <p id="registration-gate-message" class="feedback" role="status" aria-live="polite">
+          Rejestracja bonu jest dostępna po zaliczeniu wszystkich trzech quizów.
+        </p>
+        <div id="reward-section" class="hidden" style="background: #fffbea; border: 2px solid #f6e05e; padding: 20px; border-radius: 18px; margin-top: 20px;">
+          <h3 style="margin-top:0; color: #b7791f;">Gratulacje! Masz zaliczone wszystkie 3 quizy!</h3>
+          <p class="muted" style="margin-bottom: 12px;">Wybierz dostępny termin i zarejestruj bon:</p>
+          <select id="select-lesson" aria-label="Dostępne terminy">
+            <option value="">Pobieram dostępne terminy...</option>
+          </select>
+          <p id="booking-note" class="reward-note" role="status">Sprawdzam dostępność rezerwacji...</p>
+          <button class="btn btn-warning" id="reserve-btn" type="button" onclick="reserveLesson()" disabled style="margin-top: 12px;">
+            Wybierz dostępny termin
+          </button>
+        </div>
         <button class="btn btn-secondary" onclick="checkLiveStatus()">Odśwież moje wyniki i wolne miejsca</button>
         <div id="status-output" class="hidden" style="margin-top: 14px;"></div>
       </div>
@@ -171,19 +188,10 @@
         <div class="muted" style="margin-top: 6px;">Kategoria: <b id="confirm-cat"></b> • Status zapisu: <b id="confirm-sync">Wysyłanie...</b></div>
       </div>
       <p id="reward-check-feedback" class="feedback" role="status"></p>
-
-      <!-- NOWY PANEL WYBORU BONU / LEKCJI (POJAWIA SIĘ PO ZALICZENIU 3 QUIZÓW) -->
-      <div id="reward-section" class="hidden" style="background: #fffbea; border: 2px solid #f6e05e; padding: 20px; border-radius: 18px; margin-top: 20px;">
-        <h3 style="margin-top:0; color: #b7791f;">🎉 Gratulacje! Masz zaliczone wszystkie 3 quizy!</h3>
-        <p class="muted" style="margin-bottom: 12px;">Dostępne terminy z arkusza:</p>
-        <select id="select-lesson" aria-label="Dostępne terminy">
-          <option value="">Pobieram dostępne terminy...</option>
-        </select>
-        <p id="booking-note" class="reward-note" role="status">Sprawdzam dostępność rezerwacji...</p>
-        <button class="btn btn-warning" id="reserve-btn" type="button" onclick="reserveLesson()" disabled style="margin-top: 12px;">Wybierz dostępny termin</button>
-      </div>
-
       <button class="btn btn-secondary hidden" id="retry-send-btn" onclick="retryPendingResult()">Ponów wysyłkę wyniku</button>
+      <button class="btn btn-warning hidden" id="result-registration-btn" type="button" onclick="openRegistration()">
+        Przejdź do rejestracji bonu
+      </button>
       <button class="btn" onclick="goHome()" style="margin-top: 12px;">Wróć do panelu głównego</button>
     </div>
   </div>
@@ -199,19 +207,27 @@
     let questions = [];
     let currentIndex = 0;
     let selectedAnswer = null;
+    let submittedAnswers = [];
     let score = 0;
     let pendingResult = null;
     let pendingResultStored = false;
     let pendingResultSaveError = "";
     let pendingQrCategory = "";
     let bookingInProgress = false;
+    let registrationEligible = false;
+    let registrationPanelOpen = false;
+    let registrationOpening = false;
 
     function getDeviceToken() {
       let token = localStorage.getItem("szkola_device_token");
       if (!token) {
-        const rand = Math.floor(1000 + Math.random() * 9000);
-        const chars = Math.random().toString(36).substring(2, 5).toUpperCase();
-        token = `DEV-${rand}-${chars}`;
+        if (!window.crypto || typeof window.crypto.getRandomValues !== "function") {
+          throw new Error("Ta przeglądarka nie obsługuje bezpiecznego generowania identyfikatora.");
+        }
+        const bytes = new Uint8Array(8);
+        window.crypto.getRandomValues(bytes);
+        const randomPart = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("").toUpperCase();
+        token = `DEV-${randomPart}`;
         localStorage.setItem("szkola_device_token", token);
       }
       return token;
@@ -230,6 +246,7 @@
         return;
       }
       localStorage.setItem("szkola_user_name", val);
+      checkRewardEligibility();
       if (pendingQrCategory) {
         const category = pendingQrCategory;
         pendingQrCategory = "";
@@ -243,6 +260,12 @@
       document.getElementById("device-token").textContent = getDeviceToken();
       const savedName = localStorage.getItem("szkola_user_name") || "";
       document.getElementById("user-name").value = savedName;
+      if (savedName) {
+        checkRewardEligibility();
+      } else {
+        document.getElementById("registration-gate-message").textContent =
+          "Zapisz swoje dane, aby sprawdzić uprawnienie do rejestracji.";
+      }
 
       const params = new URLSearchParams(window.location.search);
       const quizParam = params.get("quiz");
@@ -292,6 +315,7 @@
       currentIndex = 0;
       score = 0;
       selectedAnswer = null;
+      submittedAnswers = [];
 
       document.getElementById("view-home").classList.add("hidden");
       document.getElementById("view-result").classList.add("hidden");
@@ -325,21 +349,16 @@
       }
 
       questionList.forEach((question, index) => {
-        const correctAnswer = typeof question?.poprawna === "string"
-          ? question.poprawna.trim().toUpperCase()
-          : "";
         const isValid = question &&
           typeof question.pytanie === "string" &&
           question.pytanie.trim() &&
           question.odpowiedzi &&
           ANSWER_KEYS.every(key =>
             typeof question.odpowiedzi[key] === "string" && question.odpowiedzi[key].trim()
-          ) &&
-          ANSWER_KEYS.includes(correctAnswer);
+          );
         if (!isValid) {
           throw new Error(`Pytanie ${index + 1} w quizie „${category}” ma nieprawidłową treść lub odpowiedzi.`);
         }
-        question.poprawna = correctAnswer;
       });
     }
 
@@ -379,9 +398,7 @@
     function nextQuestion() {
       if (!selectedAnswer || currentIndex >= questions.length) return;
       document.getElementById("next-btn").disabled = true;
-      if (selectedAnswer === questions[currentIndex].poprawna) {
-        score++;
-      }
+      submittedAnswers.push(selectedAnswer);
       currentIndex++;
       if (currentIndex < questions.length) {
         renderQuestion();
@@ -391,7 +408,14 @@
     }
 
     async function finishQuiz() {
-      pendingResult = { kategoria: currentCategory, identyfikator: getFullIdentifier(), wynik: score };
+      if (submittedAnswers.length !== QUESTION_COUNT) {
+        throw new Error("Nie udało się zebrać odpowiedzi na wszystkie pytania.");
+      }
+      pendingResult = {
+        kategoria: currentCategory,
+        identyfikator: getFullIdentifier(),
+        odpowiedzi: submittedAnswers.slice()
+      };
       pendingResultStored = false;
       pendingResultSaveError = "";
       try {
@@ -409,42 +433,67 @@
     function getPendingResult(category) {
       const raw = localStorage.getItem(getPendingResultKey(category));
       if (!raw) return null;
+      let result;
       try {
-        const result = JSON.parse(raw);
-        const valid = result &&
-          result.kategoria === category &&
-          VALID_CATEGORIES.includes(result.kategoria) &&
-          typeof result.identyfikator === "string" &&
-          Number.isInteger(result.wynik) &&
-          result.wynik >= 0 &&
-          result.wynik <= QUESTION_COUNT;
-        if (!valid) throw new Error("Nieprawidłowy zapis oczekującego wyniku.");
-        return result;
+        result = JSON.parse(raw);
       } catch {
         localStorage.removeItem(getPendingResultKey(category));
         alert("Zapis oczekującego wyniku jest uszkodzony. Możesz ponownie rozwiązać quiz.");
         return null;
       }
+
+      if (result && Number.isInteger(result.wynik)) {
+        localStorage.removeItem(getPendingResultKey(category));
+        alert("Ten wynik zapisano w starszym formacie i nie można go bezpiecznie wysłać ponownie. Rozwiąż quiz jeszcze raz.");
+        return null;
+      }
+
+      const valid = result &&
+        result.kategoria === category &&
+        VALID_CATEGORIES.includes(result.kategoria) &&
+        typeof result.identyfikator === "string" &&
+        Array.isArray(result.odpowiedzi) &&
+        result.odpowiedzi.length === QUESTION_COUNT &&
+        result.odpowiedzi.every(answer =>
+          typeof answer === "string" && ANSWER_KEYS.includes(answer.toUpperCase())
+        );
+      if (!valid) {
+        localStorage.removeItem(getPendingResultKey(category));
+        alert("Zapis oczekującego wyniku jest nieprawidłowy. Możesz ponownie rozwiązać quiz.");
+        return null;
+      }
+      result.odpowiedzi = result.odpowiedzi.map(answer => answer.toUpperCase());
+      return result;
     }
 
     async function showResult(result, statusMessage) {
       currentCategory = result.kategoria;
-      score = result.wynik;
+      score = Number.isInteger(result.wynik) ? result.wynik : null;
       document.getElementById("view-home").classList.add("hidden");
       document.getElementById("view-quiz").classList.add("hidden");
       document.getElementById("view-result").classList.remove("hidden");
-      document.getElementById("result-title").textContent = `Twój wynik: ${result.wynik} / ${QUESTION_COUNT} pkt`;
-      document.getElementById("result-desc").textContent = result.wynik >= PASS_SCORE
-        ? `Świetnie! Zaliczyłeś tę kategorię (min. ${PASS_SCORE} pkt).`
-        : `Niestety zabrakło do progu ${PASS_SCORE} punktów.`;
+      updateResultScore(result.wynik);
       document.getElementById("confirm-id").textContent = result.identyfikator;
       document.getElementById("confirm-cat").textContent = result.kategoria;
       document.getElementById("confirm-sync").textContent = statusMessage;
       document.getElementById("retry-send-btn").classList.remove("hidden");
       document.getElementById("retry-send-btn").disabled = false;
-      document.getElementById("reward-section").classList.add("hidden");
-
       await checkRewardEligibility();
+    }
+
+    function updateResultScore(resultScore) {
+      const title = document.getElementById("result-title");
+      const description = document.getElementById("result-desc");
+      if (!Number.isInteger(resultScore)) {
+        title.textContent = "Sprawdzam Twój wynik…";
+        description.textContent = "Punkty są obliczane przez arkusz po sprawdzeniu odpowiedzi.";
+        return;
+      }
+      score = resultScore;
+      title.textContent = `Twój wynik: ${resultScore} / ${QUESTION_COUNT} pkt`;
+      description.textContent = resultScore >= PASS_SCORE
+        ? `Świetnie! Zaliczyłeś tę kategorię (min. ${PASS_SCORE} pkt).`
+        : `Niestety zabrakło do progu ${PASS_SCORE} punktów.`;
     }
 
     async function retryPendingResult() {
@@ -473,36 +522,30 @@
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
           body: JSON.stringify({
+            action: "submitQuiz",
             kategoria: resultToSend.kategoria,
             identyfikator: resultToSend.identyfikator,
-            wynik: resultToSend.wynik
+            odpowiedzi: resultToSend.odpowiedzi
           })
         });
         if (!res.ok) {
           throw new Error(`Serwer zwrócił błąd HTTP ${res.status}.`);
         }
         const data = await res.json();
-        if (data && data.status === "duplicate") {
-          const id = encodeURIComponent(resultToSend.identyfikator);
-          const statusResponse = await fetch(`${API_URL}?action=status&id=${id}`);
-          if (!statusResponse.ok) {
-            throw new Error(`Serwer zwrócił błąd HTTP ${statusResponse.status} podczas weryfikacji zapisu.`);
-          }
-          const statusData = await statusResponse.json();
-          const categoryKey = resultToSend.kategoria.toLowerCase();
-          if (!statusData.uczen || Number(statusData.uczen[categoryKey]) !== resultToSend.wynik) {
-            throw new Error("Quiz jest już zapisany w arkuszu z innym wynikiem. Nie nadpisano istniejącego zapisu.");
-          }
-        } else if (!data || data.status !== "ok") {
+        if (!data || !["ok", "duplicate"].includes(data.status) ||
+            !Number.isInteger(data.wynik) || data.wynik < 0 || data.wynik > QUESTION_COUNT) {
           throw new Error(data && data.message ? data.message : "Arkusz nie potwierdził zapisu wyniku.");
         }
 
         const savedCategory = resultToSend.kategoria;
-        localStorage.setItem("done_" + savedCategory, resultToSend.wynik);
+        localStorage.setItem("done_" + savedCategory, data.wynik);
         localStorage.removeItem(getPendingResultKey(savedCategory));
         pendingResult = null;
         pendingResultStored = false;
-        document.getElementById("confirm-sync").textContent = "ZAPISANO W ARKUSZU ✓";
+        updateResultScore(data.wynik);
+        document.getElementById("confirm-sync").textContent = data.status === "duplicate"
+          ? "QUIZ BYŁ JUŻ ZAPISANY ✓"
+          : "ZAPISANO W ARKUSZU ✓";
         document.getElementById("confirm-sync").style.color = "#527b61";
         retryButton.classList.add("hidden");
         await checkRewardEligibility();
@@ -517,104 +560,163 @@
       }
     }
 
-    async function checkRewardEligibility() {
+    async function checkRewardEligibility(options = {}) {
       const feedback = document.getElementById("reward-check-feedback");
-      feedback.textContent = "";
+      const gateMessage = document.getElementById("registration-gate-message");
+      const registerButton = document.getElementById("open-registration-btn");
+      const resultRegisterButton = document.getElementById("result-registration-btn");
       const rewardSection = document.getElementById("reward-section");
-      rewardSection.classList.add("hidden");
+      registerButton.disabled = true;
+      registerButton.textContent = "Sprawdzam uprawnienia do rejestracji...";
       try {
+        const name = (localStorage.getItem("szkola_user_name") || "").trim();
+        if (!name) {
+          registrationEligible = false;
+          registrationPanelOpen = false;
+          rewardSection.classList.add("hidden");
+          registerButton.textContent = "Najpierw zapisz swoje dane";
+          gateMessage.textContent = "Zapisz swoje dane, aby sprawdzić uprawnienie do rejestracji.";
+          resultRegisterButton.classList.add("hidden");
+          return false;
+        }
+
         const id = encodeURIComponent(getFullIdentifier());
         const res = await fetch(`${API_URL}?action=status&id=${id}`);
         if (!res.ok) {
           throw new Error(`Serwer zwrócił błąd HTTP ${res.status}.`);
         }
         const data = await res.json();
-
-        if (data.status === "ok" && data.uczen) {
-          const u = data.uczen;
-          const passedAll = ["stres", "odpoczynek", "wyciszenie"].every(
-            category => Number.isFinite(Number(u[category])) && Number(u[category]) >= PASS_SCORE
-          );
-          if (passedAll) {
-            rewardSection.classList.remove("hidden");
-            feedback.classList.remove("error");
-
-            const select = document.getElementById("select-lesson");
-            const reserveButton = document.getElementById("reserve-btn");
-            const bookingNote = document.getElementById("booking-note");
-            const existingBooking = typeof u.bon === "string" && u.bon.trim() &&
-              u.bon.trim().toLowerCase() !== "brak";
-            select.disabled = Boolean(existingBooking);
-            reserveButton.disabled = true;
-            if (existingBooking) {
-              select.replaceChildren();
-              const bookedOption = document.createElement("option");
-              bookedOption.textContent = u.bon;
-              select.appendChild(bookedOption);
-              bookingNote.textContent = u.termin
-                ? `Masz już przydzielony bon ${u.bon} na termin: ${u.termin}.`
-                : `Masz już przydzielony bon: ${u.bon}`;
-              reserveButton.textContent = "Termin zarezerwowany";
-              scrollToRewardSection(rewardSection);
-              return;
-            }
-
-            select.replaceChildren();
-            const placeholder = document.createElement("option");
-            placeholder.value = "";
-            placeholder.textContent = "Wybierz termin";
-            select.appendChild(placeholder);
-            reserveButton.disabled = true;
-            reserveButton.textContent = "Wybierz dostępny termin";
-            bookingNote.textContent = "Dostępne terminy z arkusza.";
-            let reservableCount = 0;
-
-            if (Array.isArray(data.lekcje) && data.lekcje.length > 0) {
-              data.lekcje.forEach(lesson => {
-                const lessonName = lesson && (lesson.termin ?? lesson.lekcja);
-                if (!lesson || typeof lessonName !== "string" || !lessonName.trim()) {
-                  throw new Error("Arkusz zwrócił nieprawidłową nazwę terminu.");
-                }
-                const option = document.createElement("option");
-                const available = Number(lesson.wolne);
-                const limit = Number(lesson.limit);
-                const rowIndex = Number(lesson.index);
-                const hasValidRow = Number.isInteger(rowIndex) && rowIndex >= 2;
-                option.value = hasValidRow ? String(rowIndex) : "";
-                option.textContent = `${lessonName} (wolne: ${Number.isFinite(available) ? available : "—"}/${Number.isFinite(limit) ? limit : "—"})`;
-                option.disabled = !hasValidRow || !Number.isFinite(available) || available <= 0;
-                option.dataset.lessonName = lessonName;
-                if (!option.disabled) reservableCount++;
-                select.appendChild(option);
-              });
-            } else {
-              bookingNote.textContent = "Brak terminów w arkuszu.";
-            }
-
-            if (reservableCount > 0) {
-              bookingNote.textContent = "Wybierz termin z wolnym miejscem, aby zarezerwować bon.";
-              reserveButton.textContent = "Zarezerwuj wybrany termin";
-              select.onchange = updateReservationButton;
-              updateReservationButton();
-            } else if (Array.isArray(data.lekcje) && data.lekcje.length > 0) {
-              bookingNote.textContent = "Brak rezerwacji online: arkusz nie udostępnia prawidłowego numeru wiersza w polu „index” albo wszystkie miejsca są zajęte.";
-              reserveButton.textContent = "Rezerwacja niedostępna";
-            }
-            scrollToRewardSection(rewardSection);
-          } else {
-            feedback.classList.remove("error");
-            feedback.textContent = `Panel bonu pojawi się po uzyskaniu co najmniej ${PASS_SCORE}/${QUESTION_COUNT} punktów z każdego z trzech quizów.`;
-          }
-        } else if (data.status !== "ok") {
-          throw new Error(data.message || "Arkusz nie zwrócił statusu ucznia.");
-        } else {
-          feedback.classList.remove("error");
-          feedback.textContent = "Nie znaleziono jeszcze zapisanych wyników dla tego identyfikatora.";
+        if (!data || data.status !== "ok") {
+          throw new Error(data && data.message ? data.message : "Arkusz nie zwrócił statusu ucznia.");
         }
+
+        const student = data.uczen;
+        const passedAll = Boolean(student) &&
+          ["stres", "odpoczynek", "wyciszenie"].every(category =>
+            Number.isInteger(Number(student[category])) &&
+            Number(student[category]) >= PASS_SCORE &&
+            Number(student[category]) <= QUESTION_COUNT
+          );
+        registrationEligible = passedAll;
+        registerButton.disabled = !passedAll;
+        registerButton.textContent = passedAll
+          ? "Zarejestruj bon i wybierz termin"
+          : "Rejestracja po zaliczeniu 3 quizów";
+        resultRegisterButton.classList.toggle("hidden", !passedAll);
+
+        if (!passedAll) {
+          registrationPanelOpen = false;
+          rewardSection.classList.add("hidden");
+          const reason = student
+            ? `Rejestracja będzie dostępna po uzyskaniu min. ${PASS_SCORE}/${QUESTION_COUNT} pkt z każdego quizu.`
+            : "Brak zapisanych wyników dla tego identyfikatora.";
+          gateMessage.textContent = reason;
+          feedback.classList.remove("error");
+          feedback.textContent = reason;
+          return false;
+        }
+
+        feedback.textContent = "";
+        feedback.classList.remove("error");
+        gateMessage.textContent = student.bon && String(student.bon).trim() &&
+          String(student.bon).trim().toLowerCase() !== "brak"
+          ? "Masz już zarejestrowany bon. Kliknij, aby zobaczyć jego kod i termin."
+          : "Wszystkie quizy zaliczone. Możesz zarejestrować bon i wybrać termin.";
+
+        if (options.openPanel) registrationPanelOpen = true;
+        if (!registrationPanelOpen) {
+          rewardSection.classList.add("hidden");
+          return true;
+        }
+
+        rewardSection.classList.remove("hidden");
+        const select = document.getElementById("select-lesson");
+        const reserveButton = document.getElementById("reserve-btn");
+        const bookingNote = document.getElementById("booking-note");
+        const existingBooking = typeof student.bon === "string" && student.bon.trim() &&
+          student.bon.trim().toLowerCase() !== "brak";
+        select.disabled = Boolean(existingBooking);
+        reserveButton.disabled = true;
+        if (existingBooking) {
+          select.replaceChildren();
+          const bookedOption = document.createElement("option");
+          bookedOption.textContent = student.bon;
+          select.appendChild(bookedOption);
+          bookingNote.textContent = student.termin
+            ? `Masz już przydzielony bon ${student.bon} na termin: ${student.termin}.`
+            : `Masz już przydzielony bon: ${student.bon}`;
+          reserveButton.textContent = "Termin zarejestrowany";
+          scrollToRewardSection(rewardSection);
+          return true;
+        }
+
+        select.disabled = false;
+        select.replaceChildren();
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "Wybierz termin";
+        select.appendChild(placeholder);
+        reserveButton.textContent = "Wybierz dostępny termin";
+        bookingNote.textContent = "Dostępne terminy z arkusza.";
+        let reservableCount = 0;
+        if (!Array.isArray(data.lekcje)) {
+          throw new Error("Arkusz zwrócił nieprawidłową listę terminów.");
+        }
+
+        data.lekcje.forEach(lesson => {
+          const lessonName = lesson && (lesson.termin ?? lesson.lekcja);
+          if (!lesson || typeof lessonName !== "string" || !lessonName.trim()) {
+            throw new Error("Arkusz zwrócił nieprawidłową nazwę terminu.");
+          }
+          const available = Number(lesson.wolne);
+          const limit = Number(lesson.limit);
+          const rowIndex = Number(lesson.index);
+          const hasValidRow = Number.isInteger(rowIndex) && rowIndex >= 2;
+          const option = document.createElement("option");
+          option.value = hasValidRow ? String(rowIndex) : "";
+          option.textContent = `${lessonName} (wolne: ${Number.isFinite(available) ? available : "—"}/${Number.isFinite(limit) ? limit : "—"})`;
+          option.disabled = !hasValidRow || !Number.isFinite(available) || available <= 0;
+          option.dataset.lessonName = lessonName;
+          if (!option.disabled) reservableCount++;
+          select.appendChild(option);
+        });
+
+        if (reservableCount > 0) {
+          bookingNote.textContent = "Wybierz termin z wolnym miejscem, aby zarejestrować bon.";
+          reserveButton.textContent = "Zarejestruj bon na wybrany termin";
+          select.onchange = updateReservationButton;
+          updateReservationButton();
+        } else {
+          bookingNote.textContent = "Brak wolnych terminów lub dostępnych bonów.";
+          reserveButton.textContent = "Brak dostępnych miejsc";
+        }
+        scrollToRewardSection(rewardSection);
+        return true;
       } catch (err) {
         const message = err instanceof Error ? err.message : "Nieznany błąd.";
+        registrationEligible = false;
+        registrationPanelOpen = false;
+        rewardSection.classList.add("hidden");
+        registerButton.disabled = true;
+        registerButton.textContent = "Nie udało się sprawdzić uprawnień";
+        gateMessage.textContent = `Nie udało się sprawdzić uprawnień: ${message}`;
+        resultRegisterButton.classList.add("hidden");
         feedback.textContent = `Nie udało się sprawdzić, czy przysługuje bon: ${message}`;
         feedback.classList.add("error");
+        return false;
+      }
+    }
+
+    async function openRegistration() {
+      if (registrationOpening || bookingInProgress) return;
+      registrationOpening = true;
+      document.getElementById("view-quiz").classList.add("hidden");
+      document.getElementById("view-result").classList.add("hidden");
+      document.getElementById("view-home").classList.remove("hidden");
+      try {
+        await checkRewardEligibility({ openPanel: true });
+      } finally {
+        registrationOpening = false;
       }
     }
 
@@ -632,7 +734,8 @@
       const select = document.getElementById("select-lesson");
       const option = select.options[select.selectedIndex];
       const rowIndex = Number(select.value);
-      const canReserve = option && !option.disabled && Number.isInteger(rowIndex) && rowIndex >= 2;
+      const canReserve = registrationEligible && option && !option.disabled &&
+        Number.isInteger(rowIndex) && rowIndex >= 2;
       document.getElementById("reserve-btn").disabled = !canReserve || bookingInProgress;
     }
 
@@ -644,6 +747,11 @@
       const reserveButton = document.getElementById("reserve-btn");
       const bookingNote = document.getElementById("booking-note");
 
+      if (!registrationEligible) {
+        bookingNote.textContent = "Najpierw ponownie sprawdzam, czy przysługuje Ci bon.";
+        await checkRewardEligibility({ openPanel: true });
+        return;
+      }
       if (!option || option.disabled || !Number.isInteger(rowIndex) || rowIndex < 2 || !lessonName) {
         bookingNote.textContent = "Wybierz dostępny termin z listy.";
         return;
@@ -678,6 +786,7 @@
         select.disabled = true;
         document.getElementById("confirm-sync").textContent = "BON ZAREZERWOWANY ✓";
         document.getElementById("confirm-sync").style.color = "#527b61";
+        await checkRewardEligibility({ openPanel: true });
         await checkLiveStatus();
       } catch (err) {
         const message = err instanceof Error ? err.message : "Nieznany błąd.";
@@ -752,6 +861,7 @@
         });
         statusCard.appendChild(list);
         box.replaceChildren(statusCard);
+        await checkRewardEligibility();
       } catch (err) {
         const message = err instanceof Error ? err.message : "Nieznany błąd.";
         const error = document.createElement("p");
